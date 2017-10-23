@@ -21,6 +21,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public void subtraction(View view) {
-        mLikeView.subtraction();
+        mLikeView.reduce();
     }
 }

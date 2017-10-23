@@ -14,6 +14,9 @@ import android.util.AttributeSet;
 import android.util.DisplayMetrics;
 import android.view.View;
 
+import java.util.ArrayList;
+import java.util.List;
+
 
 /**
  * <pre>
@@ -26,6 +29,10 @@ import android.view.View;
  */
 public class LikeView extends View {
 
+    private static final int TEXT_PADDING = 5;
+
+    private static final int TEXT_HORIZONTAL_PADDING = 10;
+
     Paint mLikeBitmapPaint;
 
     Paint mTextPaint;
@@ -34,16 +41,28 @@ public class LikeView extends View {
 
     Rect mLikeSrcRect;
 
-    Rect mLikeDstRect;
+    Rect mLikeBitmapDstRect;
 
     Rect mTextBoundRect;
 
-    int mWidth, mHeight, mCurrentLikeNumber, mLastLikeNumber, mNeedScrollDigit;
+    int mWidth, mHeight;
 
-    float mDistance;
+    //当前动画值
+    float mCurrentAnimationValue;
+
+    //用于记录上一个值的 ArrayList
+    ArrayList<Integer> mLastValueList = new ArrayList<>();
+
+    //用于记录当前值的 ArrayList
+    ArrayList<Integer> mCurrentValueList = new ArrayList<>();
+
+    //上一个值和当前值
+    int mLastValue, mCurrentValue;
+
+    int mTotalHeight;
 
     {
-        mCurrentLikeNumber = 2333;
+        mCurrentValue = 2333;
         mLikeBitmapPaint = new Paint();
         mLikeBitmap = BitmapFactory.decodeResource(getResources(), R.drawable.like);
         mLikeSrcRect = new Rect(0, 0, mLikeBitmap.getWidth(), mLikeBitmap.getHeight());
@@ -53,7 +72,11 @@ public class LikeView extends View {
         mTextPaint.setAntiAlias(true);
         mTextPaint.setStrokeWidth(10);
         mTextBoundRect = new Rect();
-        mTextPaint.getTextBounds(String.valueOf(mCurrentLikeNumber), 0, 3, mTextBoundRect);
+        mTextPaint.getTextBounds("0", 0, 1, mTextBoundRect);
+        mTotalHeight = mTextBoundRect.height() + TEXT_HORIZONTAL_PADDING;
+        computeDigit(mCurrentValue, mLastValueList);
+        computeDigit(mCurrentValue, mCurrentValueList);
+
     }
 
     public LikeView(Context context) {
@@ -68,40 +91,38 @@ public class LikeView extends View {
         super(context, attrs, defStyleAttr);
     }
 
-
     @Override
     protected void onDraw(Canvas canvas) {
         //绘制点赞图标
-        canvas.drawBitmap(mLikeBitmap, mLikeSrcRect, mLikeDstRect, mLikeBitmapPaint);
-        int x = mWidth / 2 - mTextBoundRect.width() / 2;
-        int y = mHeight / 2 + mTextBoundRect.height() / 2;
-        int outY, inY;
-        String nextText, lastText;
-        int digit = computeDigit();
-        for (int i = digit; i > 0; i--) {
-            nextText = String.valueOf(computeDigitValue(mCurrentLikeNumber, i));
-            if (i <= mNeedScrollDigit) {
-                if(Integer.valueOf(mLastLikeNumber)>mCurrentLikeNumber){
-                    //减一
-                    nextText = String.valueOf(computeDigitValue(mLastLikeNumber,i));
-                    lastText = String.valueOf(computeDigitValue(mCurrentLikeNumber, i));
-                }else{
-                    //加一
-                    lastText = String.valueOf(computeDigitValue(mLastLikeNumber, i));
-                }
-
-                outY = (int) (y - mTextBoundRect.height() * mDistance);
-                inY = (int) (y + mTextBoundRect.height() - mTextBoundRect.height() * mDistance);
-                mTextPaint.setAlpha((int) (255 - 255 * mDistance));
-                canvas.drawText(lastText, x, outY, mTextPaint);
-                mTextPaint.setAlpha((int) (255 * mDistance));
-                canvas.drawText(nextText, x, inY, mTextPaint);
-            } else {
+        canvas.drawBitmap(mLikeBitmap, mLikeSrcRect, mLikeBitmapDstRect, mLikeBitmapPaint);
+        int startX = mWidth / 2 - mTextBoundRect.width() / 2;
+        int startY = mHeight / 2 + mTextBoundRect.height() / 2;
+        int currentValue, lastValue, x;
+        for (int i = 0; i < mCurrentValueList.size(); i++) {
+            currentValue = mCurrentValueList.get(i);
+            lastValue = mLastValueList.get(i);
+            x = startX + i * (mTextBoundRect.width() + TEXT_PADDING);
+            if (lastValue == currentValue) {
                 mTextPaint.setAlpha(255);
-                canvas.drawText(nextText, x, y, mTextPaint);
+                canvas.drawText(String.valueOf(currentValue), x, startY, mTextPaint);
+            } else if (currentValue > lastValue) {
+                drawTextIn(String.valueOf(currentValue), x, (int) (startY + (mTotalHeight - mTotalHeight * mCurrentAnimationValue)), canvas);
+                drawTextOut(String.valueOf(lastValue), x, (int) (startY - mTotalHeight * mCurrentAnimationValue), canvas);
+            } else {
+                drawTextIn(String.valueOf(currentValue), x, (int) (startY - (mTotalHeight - mTotalHeight * mCurrentAnimationValue)), canvas);
+                drawTextOut(String.valueOf(lastValue), x, (int) (startY+mTotalHeight*mCurrentAnimationValue), canvas);
             }
-            x += mTextPaint.measureText(nextText);
         }
+    }
+
+    private void drawTextIn(String text, int x, int y, Canvas canvas) {
+        mTextPaint.setAlpha((int) (mCurrentAnimationValue * 255));
+        canvas.drawText(text, x, y, mTextPaint);
+    }
+
+    private void drawTextOut(String text, int x, int y, Canvas canvas) {
+        mTextPaint.setAlpha((int) (255 - mCurrentAnimationValue * 255));
+        canvas.drawText(text, x, y, mTextPaint);
     }
 
     @Override
@@ -109,101 +130,53 @@ public class LikeView extends View {
         super.onSizeChanged(w, h, oldw, oldh);
         mWidth = w;
         mHeight = h;
-        mLikeDstRect = new Rect(dpToPixel(5), mHeight / 2 - dpToPixel(30) / 2, dpToPixel(35), mHeight / 2 + dpToPixel(30) / 2);
+        mLikeBitmapDstRect = new Rect(dpToPixel(5), mHeight / 2 - dpToPixel(30) / 2, dpToPixel(35), mHeight / 2 + dpToPixel(30) / 2);
+    }
+
+    /**
+     * 将一个整数的每位的值保存在 List 中
+     */
+    private void computeDigit(int value, List<Integer> list) {
+        list.clear();
+        if (value == 0) {
+            list.add(0);
+        }
+        while (value > 0) {
+            list.add(0, value % 10);
+            value = value / 10;
+        }
+    }
+
+    public void add() {
+        mLastValue = mCurrentValue;
+        mCurrentValue++;
+        computeDigit(mCurrentValue, mCurrentValueList);
+        computeDigit(mLastValue, mLastValueList);
+        startAnimation();
+    }
+
+    public void reduce() {
+        mLastValue = mCurrentValue;
+        mCurrentValue--;
+        computeDigit(mCurrentValue, mCurrentValueList);
+        computeDigit(mLastValue, mLastValueList);
+        startAnimation();
+    }
+
+
+    private void startAnimation() {
+        ValueAnimator animator = ValueAnimator.ofFloat(0, 1);
+        animator.addUpdateListener(animator1 -> {
+            mCurrentAnimationValue = (float) animator1.getAnimatedValue();
+            postInvalidate();
+        });
+        animator.setDuration(500);
+        animator.start();
     }
 
     public static int dpToPixel(float dp) {
         DisplayMetrics metrics = Resources.getSystem().getDisplayMetrics();
         return (int) (dp * metrics.density);
-    }
-
-    /**
-     * 计算当前点赞数量的 位数
-     */
-    private int computeDigit() {
-        if (mCurrentLikeNumber / 10000 > 0) {
-            return 5;
-        } else if (mCurrentLikeNumber / 1000 > 0) {
-            return 4;
-        } else if (mCurrentLikeNumber / 100 > 0) {
-            return 3;
-        } else if (mCurrentLikeNumber / 10 > 0) {
-            return 2;
-        } else {
-            return 1;
-        }
-    }
-
-    /**
-     * 计算需要滑动的位数
-     */
-    private int computeScrollDigitByAdd() {
-        if (mCurrentLikeNumber % 10000 == 9999) {
-            return 5;
-        } else if (mCurrentLikeNumber % 1000 == 999) {
-            return 4;
-        } else if (mCurrentLikeNumber % 100 == 99) {
-            return 3;
-        } else if (mCurrentLikeNumber % 10 == 9) {
-            return 2;
-        } else {
-            return 1;
-        }
-    }
-
-    private int computeScrollDigitBySubtraction(){
-        if (mCurrentLikeNumber % 10000 == 0) {
-            return 5;
-        } else if (mCurrentLikeNumber % 1000 == 0) {
-            return 4;
-        } else if (mCurrentLikeNumber % 100 == 0) {
-            return 3;
-        } else if (mCurrentLikeNumber % 10 == 0) {
-            return 2;
-        } else {
-            return 1;
-        }
-    }
-
-    /**
-     * 计算位数对应的值
-     */
-    private int computeDigitValue(int value, int digit) {
-        if (digit == 5) {
-            return value / 10000;
-        } else if (digit == 4) {
-            return value % 10000 / 1000;
-        } else if (digit == 3) {
-            return value % 1000 / 100;
-        } else if (digit == 2) {
-            return value % 100 / 10;
-        } else {
-            return value % 10;
-        }
-    }
-
-    public void add() {
-        mLastLikeNumber = mCurrentLikeNumber;
-        mNeedScrollDigit = computeScrollDigitByAdd();
-        mCurrentLikeNumber++;
-        ValueAnimator valueAnimator = ValueAnimator.ofFloat(0, 1).setDuration(500);
-        valueAnimator.addUpdateListener(animation -> {
-            mDistance = (float) animation.getAnimatedValue();
-            postInvalidate();
-        });
-        valueAnimator.start();
-    }
-
-    public void subtraction() {
-        mLastLikeNumber = mCurrentLikeNumber;
-        mNeedScrollDigit = computeScrollDigitBySubtraction();
-        mCurrentLikeNumber--;
-        ValueAnimator valueAnimator = ValueAnimator.ofFloat(1, 0).setDuration(500);
-        valueAnimator.addUpdateListener(animation -> {
-            mDistance = (float) animation.getAnimatedValue();
-            postInvalidate();
-        });
-        valueAnimator.start();
     }
 
 }
